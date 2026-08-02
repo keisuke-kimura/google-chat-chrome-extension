@@ -47,10 +47,19 @@ async function ensureOffscreen() {
   await creatingOffscreen;
 }
 
-export async function playChime(volume) {
+/**
+ * 通知音を鳴らす。preset / volume を省略した場合は設定値を使う。
+ */
+export async function playSound({ preset, volume } = {}) {
   try {
+    const settings = await getSettings();
     await ensureOffscreen();
-    await chrome.runtime.sendMessage({ target: 'offscreen', type: 'PLAY_CHIME', volume });
+    await chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'PLAY_SOUND',
+      preset: preset ?? settings.soundPreset,
+      volume: volume ?? settings.volume,
+    });
   } catch (err) {
     console.warn('[chat-booster] 通知音の再生に失敗:', err);
   }
@@ -108,7 +117,7 @@ export async function notifyMentions(records) {
     });
   }
 
-  if (settings.sound) await playChime(settings.volume);
+  if (settings.sound) await playSound();
 }
 
 /** Google Chat のタブがアクティブかつウィンドウがフォーカスされているか */

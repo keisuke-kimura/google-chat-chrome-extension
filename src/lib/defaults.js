@@ -35,6 +35,8 @@ export const DEFAULT_SETTINGS = {
   /* ---- 通知 ---- */
   notify: true,
   sound: true,
+  /** 通知音の種類。'custom' は利用者が読み込んだ音源（storage.local の customSound） */
+  soundPreset: 'chime',
   volume: 0.5,
   /** Chat のタブを見ている最中でも通知するか */
   notifyWhenFocused: false,

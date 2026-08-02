@@ -45,6 +45,7 @@ function fill(settings) {
   for (const [key] of NUMBER_FIELDS) $(key).value = settings[key] ?? DEFAULT_SETTINGS[key];
   for (const key of CHECK_FIELDS) $(key).checked = Boolean(settings[key]);
   $('keywords').value = (settings.keywords || []).join('\n');
+  $('soundPreset').value = settings.soundPreset || DEFAULT_SETTINGS.soundPreset;
   $('volume').value = settings.volume ?? DEFAULT_SETTINGS.volume;
   $('volumeOut').textContent = `${Math.round(($('volume').value || 0) * 100)}%`;
 }
@@ -87,6 +88,88 @@ function wireSettings() {
   $('test').addEventListener('click', async () => {
     await send({ type: 'TEST_NOTIFY' });
     flash('通知を送りました');
+  });
+
+  wireSound();
+}
+
+/* ------------------------------------------------------------------ *
+ * 通知音
+ * ------------------------------------------------------------------ */
+
+/** 1MB を超えると storage.local を圧迫するので警告する */
+const SOUND_SIZE_WARN = 1024 * 1024;
+
+function toggleCustomRow() {
+  $('customSoundRow').hidden = $('soundPreset').value !== 'custom';
+}
+
+function preview() {
+  send({
+    type: 'PREVIEW_SOUND',
+    preset: $('soundPreset').value,
+    volume: Number($('volume').value),
+  });
+}
+
+async function renderCustomSoundInfo() {
+  const info = await send({ type: 'GET_CUSTOM_SOUND' });
+  const el = $('customSoundInfo');
+  if (info?.name) {
+    const kb = Math.round((info.size || 0) / 1024);
+    el.textContent = `読み込み済み: ${info.name}（${kb} KB）`;
+  } else {
+    el.innerHTML =
+      'mp3 / wav / ogg など。<b>1MB 以下</b>を推奨します（ブラウザ内に保存するため）。';
+  }
+}
+
+function wireSound() {
+  toggleCustomRow();
+
+  $('soundPreset').addEventListener('change', async () => {
+    toggleCustomRow();
+    await persist({ soundPreset: $('soundPreset').value });
+    if ($('soundPreset').value !== 'custom') preview();
+  });
+
+  $('previewSound').addEventListener('click', preview);
+
+  $('soundFile').addEventListener('change', async () => {
+    const file = $('soundFile').files?.[0];
+    if (!file) return;
+    if (file.size > SOUND_SIZE_WARN * 5) {
+      flash('ファイルが大きすぎます（5MB 以下にしてください）');
+      $('soundFile').value = '';
+      return;
+    }
+
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    }).catch(() => null);
+
+    if (!dataUrl) {
+      flash('ファイルを読み込めませんでした');
+      return;
+    }
+
+    await send({ type: 'SET_CUSTOM_SOUND', dataUrl, name: file.name, size: file.size });
+    await persist({ soundPreset: 'custom' });
+    $('soundPreset').value = 'custom';
+    toggleCustomRow();
+    await renderCustomSoundInfo();
+    flash(file.size > SOUND_SIZE_WARN ? '読み込みました（サイズが大きめです）' : '読み込みました');
+    preview();
+  });
+
+  $('clearSound').addEventListener('click', async () => {
+    await send({ type: 'SET_CUSTOM_SOUND', dataUrl: null });
+    $('soundFile').value = '';
+    await renderCustomSoundInfo();
+    flash('音源を削除しました');
   });
 }
 
@@ -214,6 +297,7 @@ function wireConnection() {
   await fillCredentials();
   wireSettings();
   wireConnection();
+  await renderCustomSoundInfo();
   await renderStatus();
   setInterval(renderStatus, 15000);
 })();

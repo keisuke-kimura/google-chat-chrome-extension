@@ -310,6 +310,40 @@ input[type='password']:focus {
   font-size: 12px;
 }
 
+select {
+  flex: 1;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+input[type='file'] {
+  flex: 1;
+  min-width: 0;
+  margin-top: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+}
+
+#customSoundRow[hidden] {
+  display: none;
+}
+
 .setup a {
   color: var(--accent);
 }

@@ -7,7 +7,7 @@
 
 import { KEYS, LIMITS, getSettings } from './lib/defaults.js';
 import { readList, writeList, capFor, getPollState, resetPollState } from './lib/store.js';
-import { refreshBadge, showNotification, playChime, openChatUrl } from './lib/notify.js';
+import { refreshBadge, showNotification, playSound, openChatUrl } from './lib/notify.js';
 import { pollOnce, scanUnread, pollPeriodMinutes } from './lib/poller.js';
 import { updateSpaceReadState, ApiError } from './lib/chat-api.js';
 import {
@@ -289,8 +289,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           text: 'この見た目・音でメンションを通知します。',
           url: 'https://chat.google.com/',
         });
-        if (settings.sound) await playChime(settings.volume);
+        if (settings.sound) await playSound();
         sendResponse({ ok: true });
+        break;
+      }
+
+      // 設定画面のプレビュー。保存前の値で鳴らせるよう明示的に受け取る。
+      case 'PREVIEW_SOUND':
+        await playSound({ preset: msg.preset, volume: msg.volume });
+        sendResponse({ ok: true });
+        break;
+
+      case 'SET_CUSTOM_SOUND': {
+        if (msg.dataUrl) {
+          await chrome.storage.local.set({
+            customSound: { dataUrl: msg.dataUrl, name: msg.name || '', size: msg.size || 0 },
+          });
+        } else {
+          await chrome.storage.local.remove('customSound');
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+
+      case 'GET_CUSTOM_SOUND': {
+        const got = await chrome.storage.local.get('customSound');
+        // data URL 本体は返さない（大きいので、名前とサイズだけ）
+        const info = got.customSound;
+        sendResponse(info ? { name: info.name, size: info.size } : null);
         break;
       }
 

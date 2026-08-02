@@ -164,6 +164,34 @@
           <span>通知音を鳴らす</span>
         </label>
 
+        <div class="field">
+          <span class="label">通知音</span>
+          <div class="copy-row">
+            <select id="soundPreset">
+              <option value="chime">チャイム（既定）— 上がる2音</option>
+              <option value="ping">ピン — 単発の澄んだ音</option>
+              <option value="marimba">マリンバ — 柔らかい木琴風</option>
+              <option value="pop">ポップ — 控えめな一発</option>
+              <option value="knock">ノック — 音程のない打撃音</option>
+              <option value="alert">アラート — 3音で上がる。急ぎ向け</option>
+              <option value="subtle">サトル — ごく静か</option>
+              <option value="custom">自分の音源を使う…</option>
+            </select>
+            <button id="previewSound" class="btn ghost small" type="button">▶ 試聴</button>
+          </div>
+        </div>
+
+        <div class="field" id="customSoundRow" hidden>
+          <span class="label">音源ファイル</span>
+          <div class="copy-row">
+            <input id="soundFile" type="file" accept="audio/*" />
+            <button id="clearSound" class="btn ghost small" type="button">削除</button>
+          </div>
+          <span class="hint" id="customSoundInfo">
+            mp3 / wav / ogg など。<b>1MB 以下</b>を推奨します（ブラウザ内に保存するため）。
+          </span>
+        </div>
+
         <label class="field inline">
           <span class="label">音量</span>
           <input id="volume" type="range" min="0" max="1" step="0.05" />
