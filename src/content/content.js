@@ -19,15 +19,71 @@
   const DEFAULTS = { hoverToolbar: true, domAccelerator: true };
   let settings = { ...DEFAULTS };
 
-  chrome.storage.sync.get('settings').then((stored) => {
-    settings = { ...DEFAULTS, ...(stored.settings || {}) };
-  });
+  /* ---------------------------------------------------------------- *
+   * 拡張コンテキストの生存確認
+   *
+   * 拡張をリロード／更新すると、既に開いているページに残った content script は
+   * 孤児になり chrome.runtime が undefined になる（extension context invalidated）。
+   * Chat は DOM が絶えず動くので、素で呼ぶと例外が出続ける。
+   * .catch() では防げない（同期的な TypeError なので）。呼ぶ前に生存を確認する。
+   * ---------------------------------------------------------------- */
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'sync' || !changes.settings) return;
-    settings = { ...DEFAULTS, ...(changes.settings.newValue || {}) };
-    if (!settings.hoverToolbar) toolbar?.classList.remove('cb-visible');
-  });
+  let dead = false;
+
+  function alive() {
+    if (dead) return false;
+    try {
+      if (chrome?.runtime?.id) return true;
+    } catch {
+      /* アクセス自体が投げることもある */
+    }
+    teardown();
+    return false;
+  }
+
+  /** 孤児になったら後片付けして黙る。ページをリロードすれば新しい script が入る。 */
+  function teardown() {
+    if (dead) return;
+    dead = true;
+    try {
+      observer.disconnect();
+    } catch {
+      /* まだ observe していない */
+    }
+    toolbar?.remove();
+    flashEl?.remove();
+    toolbar = null;
+    flashEl = null;
+  }
+
+  /** 生きているときだけ background に送る */
+  function sendToBackground(message) {
+    if (!alive()) return Promise.reject(new Error('extension context invalidated'));
+    try {
+      return chrome.runtime.sendMessage(message).catch((err) => {
+        // 送信中に拡張が落ちた場合もここに来る
+        if (String(err?.message || '').includes('context invalidated')) teardown();
+        throw err;
+      });
+    } catch (err) {
+      teardown();
+      return Promise.reject(err);
+    }
+  }
+
+  try {
+    chrome.storage.sync.get('settings').then((stored) => {
+      settings = { ...DEFAULTS, ...(stored.settings || {}) };
+    });
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'sync' || !changes.settings) return;
+      settings = { ...DEFAULTS, ...(changes.settings.newValue || {}) };
+      if (!settings.hoverToolbar) toolbar?.classList.remove('cb-visible');
+    });
+  } catch {
+    // 読み込み直後に孤児化しているケース。既定値のまま動かす。
+  }
 
   /* ---------------------------------------------------------------- *
    * メッセージ要素の特定（保存ボタンを出す位置を決めるためだけに使う）
@@ -211,10 +267,9 @@
     const record = toRecord(el);
     if (!record) return;
     if (overrideText) record.text = overrideText;
-    chrome.runtime
-      .sendMessage({ type: 'SAVE_MESSAGE', payload: record })
+    sendToBackground({ type: 'SAVE_MESSAGE', payload: record })
       .then(() => flash('★ 保存しました'))
-      .catch(() => flash('保存に失敗しました'));
+      .catch(() => flash('保存に失敗しました（拡張を再読み込みした場合はページを更新してください）'));
   }
 
   function copyLink(el) {
@@ -245,6 +300,7 @@
   let flashEl = null;
   let flashTimer = null;
   function flash(text) {
+    if (dead) return;
     if (!flashEl) {
       flashEl = document.createElement('div');
       flashEl.className = 'cb-flash';
@@ -256,13 +312,17 @@
     flashTimer = setTimeout(() => flashEl.classList.remove('cb-visible'), 1800);
   }
 
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.type === 'SAVE_HOVERED') {
-      saveCurrent();
-      sendResponse({ ok: true });
-    }
-    return false;
-  });
+  try {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (msg?.type === 'SAVE_HOVERED') {
+        saveCurrent();
+        sendResponse({ ok: true });
+      }
+      return false;
+    });
+  } catch {
+    /* 孤児化済み */
+  }
 
   /* ---------------------------------------------------------------- *
    * ポーリングの前倒し
@@ -273,16 +333,17 @@
 
   let nudgeTimer = null;
   const observer = new MutationObserver((records) => {
-    if (!settings.domAccelerator || nudgeTimer) return;
+    if (dead || !settings.domAccelerator || nudgeTimer) return;
     if (!records.some((r) => r.addedNodes && r.addedNodes.length > 0)) return;
 
     nudgeTimer = setTimeout(() => {
       nudgeTimer = null;
-      chrome.runtime.sendMessage({ type: 'DOM_ACTIVITY' }).catch(() => {
+      // 孤児化していれば sendToBackground 側で observer ごと止まる
+      sendToBackground({ type: 'DOM_ACTIVITY' }).catch(() => {
         /* service worker 再起動中などは黙って捨てる */
       });
     }, 1200);
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  if (alive()) observer.observe(document.body, { childList: true, subtree: true });
 })();

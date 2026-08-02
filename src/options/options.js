@@ -6,7 +6,11 @@
 import { DEFAULT_SETTINGS, getSettings, setSettings } from '../lib/defaults.js';
 
 const TEXT_FIELDS = ['displayName'];
-const NUMBER_FIELDS = ['pollSeconds'];
+/** [id, 最小値] — 0 を許す項目があるので下限は個別に持つ */
+const NUMBER_FIELDS = [
+  ['pollSeconds', 30],
+  ['unreadScanSeconds', 0],
+];
 const CHECK_FIELDS = [
   'matchAll',
   'notifyDms',
@@ -38,7 +42,7 @@ function flash(text = '保存しました') {
 
 function fill(settings) {
   for (const key of TEXT_FIELDS) $(key).value = settings[key] ?? '';
-  for (const key of NUMBER_FIELDS) $(key).value = settings[key] ?? DEFAULT_SETTINGS[key];
+  for (const [key] of NUMBER_FIELDS) $(key).value = settings[key] ?? DEFAULT_SETTINGS[key];
   for (const key of CHECK_FIELDS) $(key).checked = Boolean(settings[key]);
   $('keywords').value = (settings.keywords || []).join('\n');
   $('volume').value = settings.volume ?? DEFAULT_SETTINGS.volume;
@@ -57,9 +61,11 @@ function wireSettings() {
   for (const key of CHECK_FIELDS) {
     $(key).addEventListener('change', () => persist({ [key]: $(key).checked }));
   }
-  for (const key of NUMBER_FIELDS) {
+  for (const [key, min] of NUMBER_FIELDS) {
     $(key).addEventListener('change', () => {
-      const value = Math.max(30, Number($(key).value) || DEFAULT_SETTINGS[key]);
+      const raw = Number($(key).value);
+      // 0 を明示的に入れたときは 0（無効）として扱う
+      const value = raw === 0 && min === 0 ? 0 : Math.max(min, raw || DEFAULT_SETTINGS[key]);
       $(key).value = value;
       persist({ [key]: value });
     });
@@ -112,14 +118,25 @@ async function renderStatus() {
     return;
   }
 
+  $('redirect-uri').textContent = s.redirectUri || '—';
+
   $('connect').style.display = s.connected ? 'none' : '';
+  $('connect').disabled = !s.configured;
   $('disconnect').style.display = s.connected ? '' : 'none';
   $('poll').style.display = s.connected ? '' : 'none';
 
   if (s.connected) {
     dot.className = 'dot good';
     title.textContent = s.me?.email || s.me?.displayName || '接続済み';
-    detail.textContent = `監視中のスペース ${s.spaceCount} 件・最終同期 ${fmtTime(s.lastOkAt)}`;
+    const durability = s.durable
+      ? '自動更新あり'
+      : `トークン有効 ${fmtTime(s.expiresAt)} まで（シークレット未設定）`;
+    detail.textContent =
+      `監視中のスペース ${s.spaceCount} 件・最終同期 ${fmtTime(s.lastOkAt)}・${durability}`;
+  } else if (!s.configured) {
+    dot.className = 'dot idle';
+    title.textContent = 'クライアント ID が未設定';
+    detail.textContent = '下の手順で取得した ID を入力してください。';
   } else {
     dot.className = 'dot idle';
     title.textContent = '未接続';
@@ -134,8 +151,21 @@ async function renderStatus() {
   }
 }
 
+async function fillCredentials() {
+  const config = (await send({ type: 'GET_OAUTH_CONFIG' })) || {};
+  $('clientId').value = config.clientId || '';
+  $('clientSecret').value = config.clientSecret || '';
+}
+
 function wireConnection() {
-  $('ext-id').textContent = chrome.runtime.id;
+  // 認証情報を変えると今のトークンは無効になるので、background 側で接続解除される
+  for (const key of ['clientId', 'clientSecret']) {
+    $(key).addEventListener('change', async () => {
+      await send({ type: 'SET_OAUTH_CONFIG', config: { [key]: $(key).value.trim() } });
+      flash('認証情報を保存しました（再接続が必要です）');
+      renderStatus();
+    });
+  }
 
   $('connect').addEventListener('click', async () => {
     $('connect').disabled = true;
@@ -158,6 +188,7 @@ function wireConnection() {
     $('poll').disabled = true;
     $('poll').textContent = '同期中…';
     const res = await send({ type: 'POLL_NOW' });
+    await send({ type: 'SCAN_UNREAD', force: true });
     $('poll').disabled = false;
     $('poll').textContent = '今すぐ同期';
     flash(res?.ok ? `同期しました（新着 ${res.found ?? 0} 件）` : '同期に失敗しました');
@@ -169,6 +200,7 @@ function wireConnection() {
 
 (async () => {
   fill(await getSettings());
+  await fillCredentials();
   wireSettings();
   wireConnection();
   await renderStatus();

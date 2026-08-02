@@ -251,6 +251,50 @@ kbd {
   cursor: default;
 }
 
+/* ---- 認証情報の入力 ---- */
+
+.creds {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.creds .field:last-child {
+  margin-bottom: 0;
+}
+
+.label em.opt {
+  color: var(--fg-dim);
+}
+
+input[type='password'] {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+input[type='password']:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+.mono.block {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 8px 11px;
+  word-break: break-all;
+}
+
+.setup a {
+  color: var(--accent);
+}
+
 .error {
   display: none;
   margin: 12px 0 0;

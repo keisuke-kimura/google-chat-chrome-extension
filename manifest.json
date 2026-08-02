@@ -1,20 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Chat Booster for Google Chat",
-  "version": "0.2.0",
-  "description": "Google Chat をSlackライクに。Chat API でメンションを全スペース横断で検知して即通知し、メッセージをブックマーク保存できます。",
+  "version": "0.3.0",
+  "description": "Google Chat をSlackライクに。Chat API でメンションを全スペース横断で検知して即通知し、未読の一覧とブックマーク保存ができます。",
   "minimum_chrome_version": "116",
-
-  "oauth2": {
-    "client_id": "REPLACE_WITH_YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "scopes": [
-      "openid",
-      "https://www.googleapis.com/auth/userinfo.profile",
-      "https://www.googleapis.com/auth/chat.spaces.readonly",
-      "https://www.googleapis.com/auth/chat.messages.readonly",
-      "https://www.googleapis.com/auth/chat.users.readstate"
-    ]
-  },
 
   "permissions": [
     "identity",

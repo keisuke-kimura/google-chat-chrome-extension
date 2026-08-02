@@ -31,21 +31,72 @@
           </div>
         </div>
         <p id="conn-error" class="error"></p>
+
+        <div class="creds">
+          <label class="field">
+            <span class="label">クライアント ID <em>必須</em></span>
+            <input
+              id="clientId"
+              type="text"
+              spellcheck="false"
+              placeholder="123456789-xxxxxxxx.apps.googleusercontent.com"
+            />
+            <span class="hint">
+              Google Cloud Console で作成した、種類「<b>ウェブ アプリケーション</b>」の
+              OAuth クライアント ID。
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="label">クライアント シークレット <em class="opt">任意（推奨）</em></span>
+            <input id="clientSecret" type="password" spellcheck="false" placeholder="GOCSPX-…" />
+            <span class="hint">
+              入れると<b>リフレッシュトークン</b>が使えるようになり、再ログインなしで
+              バックグラウンド監視が続きます。空のままだと約1時間で失効し、
+              その都度こっそり取り直しを試みます（Google のセッションが切れていると再接続が必要）。
+            </span>
+          </label>
+
+          <div class="field">
+            <span class="label">承認済みのリダイレクト URI</span>
+            <span class="mono block" id="redirect-uri">—</span>
+            <span class="hint">
+              この値を Cloud Console の OAuth クライアントの
+              「承認済みのリダイレクト URI」に<b>そのまま</b>登録してください。
+            </span>
+          </div>
+        </div>
+
         <details class="setup">
-          <summary>接続できないときは（Cloud 側のセットアップ手順）</summary>
+          <summary>Google Cloud 側のセットアップ手順（初回のみ）</summary>
           <ol>
-            <li>Google Cloud Console でプロジェクトを作成</li>
-            <li><b>Google Chat API</b> を有効化し、「設定」で<b>アプリ名・アバターURL・説明</b>を入力して保存（ユーザー認証だけでもこの設定が必須）</li>
-            <li>OAuth 同意画面を <b>内部 (Internal)</b> で作成（社内 Workspace なら Google の審査は不要）</li>
-            <li>認証情報 → OAuth クライアント ID → 種類「<b>Chrome 拡張機能</b>」→ アイテム ID にこの拡張の ID を入力
-              <br /><span class="mono" id="ext-id"></span></li>
-            <li>発行された<b>クライアント ID</b> を <code>manifest.json</code> の
-              <code>oauth2.client_id</code> に貼り付けて、拡張をリロード</li>
+            <li>
+              <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">
+                Google Cloud Console</a> でプロジェクトを作成
+            </li>
+            <li>
+              <b>Google Chat API</b> を有効化
+              （<a
+                href="https://console.cloud.google.com/apis/library/chat.googleapis.com"
+                target="_blank"
+                rel="noreferrer">API ライブラリ</a>）
+            </li>
+            <li>
+              Chat API の<b>「設定」タブ</b>で<b>アプリ名・アバターURL・説明</b>を入力して保存。
+              <span class="hint">読み取り専用の用途でも、ここが空だと 403 になります。</span>
+            </li>
+            <li>
+              <b>OAuth 同意画面</b>を作成。社内 Workspace なら<b>「内部」</b>を選ぶと
+              Google の審査が不要です。
+            </li>
+            <li>
+              <b>認証情報 → OAuth クライアント ID</b> → 種類
+              <b>「ウェブ アプリケーション」</b>を選択し、
+              「承認済みのリダイレクト URI」に上の URI を登録
+            </li>
+            <li>発行された<b>クライアント ID</b>（必要ならシークレットも）を上の欄に貼り付け</li>
+            <li><b>「Google アカウントに接続」</b>を押す</li>
           </ol>
-          <p class="hint">
-            詳細は同梱の <code>README.md</code> に。Chrome 本体に対象の Google アカウントで
-            ログインしている必要があります。
-          </p>
         </details>
       </section>
 
@@ -142,6 +193,16 @@
             <span class="hint">（間隔を待たずに数秒で気づけます）</span>
           </span>
         </label>
+
+        <label class="field inline">
+          <span class="label">未読一覧の更新間隔</span>
+          <input id="unreadScanSeconds" type="number" min="0" max="3600" step="30" />
+          <span class="unit">秒（0 で無効）</span>
+        </label>
+        <p class="hint block">
+          サイドパネルの「未読」タブ用。1スペースあたり2リクエスト使うため、
+          メンション検知より長めにしています。
+        </p>
       </section>
 
       <section class="card">

@@ -8,14 +8,16 @@
 import { KEYS, LIMITS, getSettings } from './lib/defaults.js';
 import { readList, writeList, capFor, getPollState, resetPollState } from './lib/store.js';
 import { refreshBadge, showNotification, playChime, openChatUrl } from './lib/notify.js';
-import { pollOnce, pollPeriodMinutes } from './lib/poller.js';
+import { pollOnce, scanUnread, pollPeriodMinutes } from './lib/poller.js';
+import { updateSpaceReadState, ApiError } from './lib/chat-api.js';
 import {
-  getToken,
-  clearToken,
-  isConnected,
-  updateSpaceReadState,
-  ApiError,
-} from './lib/chat-api.js';
+  connect as authConnect,
+  disconnect as authDisconnect,
+  getAuthStatus,
+  getOAuthConfig,
+  setOAuthConfig,
+  AuthError,
+} from './lib/auth.js';
 
 const ALARM = 'chat-booster-poll';
 
@@ -30,8 +32,11 @@ async function scheduleAlarm() {
   await chrome.alarms.create(ALARM, { periodInMinutes, delayInMinutes: 0.1 });
 }
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM) pollOnce();
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== ALARM) return;
+  await pollOnce();
+  // 未読スキャンは重いので、自前の間隔判定で間引かれる（too-soon なら即返る）
+  await scanUnread();
 });
 
 /**
@@ -54,32 +59,38 @@ async function nudge() {
 
 async function connect() {
   try {
-    await getToken({ interactive: true });
+    await authConnect();
     await resetPollState();
     const result = await pollOnce({ force: true, silent: true });
+    await scanUnread({ force: true });
     await scheduleAlarm();
     return { ok: true, result };
   } catch (error) {
-    return { ok: false, error: error?.message || String(error) };
+    return {
+      ok: false,
+      error: error?.message || String(error),
+      needsSetup: error instanceof AuthError ? error.needsSetup : false,
+    };
   }
 }
 
 async function disconnect() {
-  await clearToken();
+  await authDisconnect();
   await resetPollState();
+  await chrome.storage.local.set({ [KEYS.unread]: [] });
   await chrome.action.setBadgeText({ text: '' });
   await chrome.alarms.clear(ALARM);
   return { ok: true };
 }
 
 async function status() {
-  const [connected, state, settings] = await Promise.all([
-    isConnected(),
+  const [auth, state, settings] = await Promise.all([
+    getAuthStatus(),
     getPollState(),
     getSettings(),
   ]);
   return {
-    connected,
+    ...auth,
     me: state.me,
     spaceCount: state.spaces.length,
     lastOkAt: state.lastOkAt,
@@ -146,7 +157,23 @@ async function muteSpace(space, muted) {
   if (muted) set.add(space);
   else set.delete(space);
   await chrome.storage.sync.set({ settings: { ...settings, mutedSpaces: [...set] } });
+  // ミュートしたスペースを未読一覧からも即座に消す
+  const unread = await readList(KEYS.unread);
+  await chrome.storage.local.set({
+    [KEYS.unread]: unread.filter((u) => !set.has(u.space)),
+  });
   return { ok: true, mutedSpaces: [...set] };
+}
+
+/** スペースをまるごと既読にする（Chat 本体の状態を書き換える） */
+async function markSpaceRead(space) {
+  const nowIso = new Date().toISOString();
+  await updateSpaceReadState(space, nowIso);
+  const unread = await readList(KEYS.unread);
+  await chrome.storage.local.set({
+    [KEYS.unread]: unread.filter((u) => u.space !== space),
+  });
+  return { ok: true };
 }
 
 /* ------------------------------------------------------------------ *
@@ -170,6 +197,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(await status());
         break;
 
+      case 'GET_OAUTH_CONFIG':
+        sendResponse(await getOAuthConfig());
+        break;
+
+      case 'SET_OAUTH_CONFIG':
+        // 認証情報が変わったら、今のトークンは無効なので捨てる
+        await authDisconnect();
+        await resetPollState();
+        sendResponse({ ok: true, config: await setOAuthConfig(msg.config) });
+        break;
+
       // ボタン操作。バックオフ中でも無理やり取りに行く。
       case 'POLL_NOW':
         sendResponse(await pollOnce({ force: true }));
@@ -190,14 +228,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
 
       case 'LIST': {
-        const [mentions, saved, settings] = await Promise.all([
+        const [mentions, saved, unread, settings] = await Promise.all([
           readList(KEYS.mentions),
           readList(KEYS.saved),
+          readList(KEYS.unread),
           getSettings(),
         ]);
-        sendResponse({ mentions, saved, mutedSpaces: settings.mutedSpaces || [] });
+        sendResponse({ mentions, saved, unread, mutedSpaces: settings.mutedSpaces || [] });
         break;
       }
+
+      case 'SCAN_UNREAD':
+        sendResponse(await scanUnread({ force: msg.force !== false }));
+        break;
+
+      case 'MARK_SPACE_READ':
+        sendResponse(await markSpaceRead(msg.space));
+        break;
 
       case 'MARK_READ':
         sendResponse(await markRead(msg));

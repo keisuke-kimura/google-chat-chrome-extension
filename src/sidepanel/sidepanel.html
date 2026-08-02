@@ -12,6 +12,9 @@
         <button class="tab is-active" role="tab" data-view="mentions">
           メンション <span class="count" id="count-mentions"></span>
         </button>
+        <button class="tab" role="tab" data-view="unread">
+          未読 <span class="count" id="count-unread"></span>
+        </button>
         <button class="tab" role="tab" data-view="saved">
           保存済み <span class="count" id="count-saved"></span>
         </button>
@@ -34,6 +37,7 @@
 
     <main id="list" class="list" aria-live="polite"></main>
 
+    <!-- メンション / 保存済み -->
     <template id="item-tpl">
       <article class="item">
         <div class="item-head">
@@ -48,6 +52,23 @@
           <button class="mini save">★ 保存</button>
           <button class="mini mute" title="このスペースの通知を止める">🔕</button>
           <button class="mini remove">削除</button>
+        </div>
+      </article>
+    </template>
+
+    <!-- 未読スペース -->
+    <template id="unread-tpl">
+      <article class="item unread-item">
+        <div class="item-head">
+          <span class="badge-count"></span>
+          <span class="space strong"></span>
+          <time class="when"></time>
+        </div>
+        <p class="text"><span class="latest-sender"></span><span class="latest-text"></span></p>
+        <div class="item-actions">
+          <button class="mini open">開く</button>
+          <button class="mini read">既読にする</button>
+          <button class="mini mute" title="このスペースの通知を止める">🔕</button>
         </div>
       </article>
     </template>

@@ -30,18 +30,18 @@ zip -r -q "$OUT_DIR/$BASENAME.zip" \
 
 echo "作成: $OUT_DIR/$BASENAME.zip"
 
-if grep -q '"client_id": *"REPLACE_WITH_YOUR_CLIENT_ID' manifest.json; then
+if grep -q '"oauth2"' manifest.json; then
   echo
-  echo "⚠️  manifest.json の oauth2.client_id がプレースホルダーのままです。"
-  echo "    このまま配ると、受け取った人は接続できません。"
+  echo "⚠️  manifest.json に oauth2 ブロックが残っています。"
+  echo "    クライアント ID は利用者が設定画面で入力する方式なので、不要です。"
 fi
 
 if ! grep -q '"key"' manifest.json; then
   echo
   echo "ℹ️  manifest.json に \"key\" がありません。"
-  echo "    zip を直接配る場合、読み込む人ごとに拡張 ID が変わり OAuth が通りません。"
-  echo "    bash tools/make-key.sh を実行して \"key\" を追加してください。"
-  echo "    （ウェブストアで公開する場合は \"key\" 不要です）"
+  echo "    ウェブストアで公開するなら、これで正しい（ID はストアが発行）。"
+  echo "    zip を直接配る場合は、拡張 ID = OAuth のリダイレクト URI が"
+  echo "    読み込む人ごとに変わってしまうため、bash tools/make-key.sh で固定してください。"
 fi
 
 if [[ "${1:-}" == "--crx" ]]; then

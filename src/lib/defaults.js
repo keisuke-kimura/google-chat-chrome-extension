@@ -25,6 +25,12 @@ export const DEFAULT_SETTINGS = {
   pollSeconds: 60,
   /** Chat のタブを開いている間、DOM 変化を検知して即座にポーリングするか */
   domAccelerator: true,
+  /**
+   * 未読スペース一覧を更新する間隔（秒）。
+   * メンション検知と違い1スペースあたり2リクエスト使うので、既定は長めにしている。
+   * 0 にすると未読一覧を取りに行かない。
+   */
+  unreadScanSeconds: 300,
 
   /* ---- 通知 ---- */
   notify: true,
@@ -51,11 +57,16 @@ export const LIMITS = {
   spacesTtlMs: 15 * 60 * 1000,
   /** 初回ポーリング時にさかのぼる範囲 */
   backfillMs: 10 * 60 * 1000,
+  /** 未読を数える上限。これを超えたら "N+" と表示する */
+  unreadPageSize: 25,
+  /** 一度も読んでいないスペースで、未読としてさかのぼる上限 */
+  unreadFloorMs: 30 * 24 * 60 * 60 * 1000,
 };
 
 export const KEYS = {
   mentions: 'mentions',
   saved: 'saved',
+  unread: 'unread',
   notifMap: 'notifMap',
   pollState: 'pollState',
 };

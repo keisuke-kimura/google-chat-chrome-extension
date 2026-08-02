@@ -12,14 +12,17 @@
 import { DEFAULT_SETTINGS, KEYS, LIMITS, getSettings } from './defaults.js';
 import { getPollState, setPollState, readList, writeList } from './store.js';
 import { notifyMentions, refreshBadge } from './notify.js';
+import { isConnected } from './auth.js';
 import {
   ApiError,
-  isConnected,
   getMe,
   listSpaces,
   listMessagesSince,
+  listUnreadMessages,
+  getSpaceReadState,
   spaceLabel,
   messagePermalink,
+  spacePermalink,
 } from './chat-api.js';
 
 /* ------------------------------------------------------------------ *
@@ -244,6 +247,106 @@ async function appendMentions(records) {
   const next = [...added, ...existing].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   await writeList(KEYS.mentions, next, LIMITS.mentions);
   return added;
+}
+
+/* ------------------------------------------------------------------ *
+ * 未読スペースの一覧
+ *
+ * Chat 本体の未読状態（spaceReadState.lastReadTime）を正として、
+ * それより後に来たメッセージを数える。拡張が独自に「読んだ / 読んでない」を
+ * 持つのではなく Chat 側の状態を映すので、Chat で読めばここからも消える。
+ *
+ * 1 スペースあたり 2 リクエスト使うため、メンション検知とは別間隔で回す。
+ * ------------------------------------------------------------------ */
+
+let unreadInFlight = null;
+
+export function scanUnread(options = {}) {
+  if (unreadInFlight) return unreadInFlight;
+  unreadInFlight = runUnreadScan(options).finally(() => {
+    unreadInFlight = null;
+  });
+  return unreadInFlight;
+}
+
+async function runUnreadScan({ force = false } = {}) {
+  const settings = await getSettings();
+  const now = Date.now();
+
+  if (!Number(settings.unreadScanSeconds)) {
+    await chrome.storage.local.set({ [KEYS.unread]: [] });
+    return { ok: false, reason: 'disabled' };
+  }
+  if (!(await isConnected())) return { ok: false, reason: 'not-connected' };
+
+  const state = await getPollState();
+  if (!force && state.backoffUntil > now) {
+    return { ok: false, reason: 'backoff', until: state.backoffUntil };
+  }
+  if (
+    !force &&
+    state.lastUnreadScanAt &&
+    now - state.lastUnreadScanAt < Number(settings.unreadScanSeconds) * 1000
+  ) {
+    return { ok: false, reason: 'too-soon' };
+  }
+
+  if (state.spaces.length === 0) {
+    // まだスペース一覧を持っていない。通常ポーリングが先に走る。
+    await pollOnce();
+    return { ok: false, reason: 'no-spaces' };
+  }
+
+  const muted = new Set(settings.mutedSpaces || []);
+  const targets = state.spaces.filter((s) => s.name && !muted.has(s.name));
+  const floor = new Date(now - LIMITS.unreadFloorMs).toISOString();
+
+  const results = await mapPool(targets, LIMITS.concurrency, async (space) => {
+    const readState = await getSpaceReadState(space.name).catch(() => null);
+    // lastReadTime が無い（一度も開いていない）スペースは、遡りすぎないよう下限を切る
+    let since = readState?.lastReadTime || floor;
+    if (since < floor) since = floor;
+
+    const { messages, hasMore } = await listUnreadMessages(space.name, since, {
+      pageSize: LIMITS.unreadPageSize,
+    });
+
+    // 自分の発言だけが「未読」になっている状態は無視する
+    const others = messages.filter(
+      (m) => !m.deletionMetadata && m.sender?.name !== state.me?.name
+    );
+    if (others.length === 0) return null;
+
+    const latest = others[0]; // orderBy DESC なので先頭が最新
+    return {
+      space: space.name,
+      spaceName: spaceLabel(space),
+      spaceType: space.spaceType || '',
+      count: others.length,
+      hasMore,
+      lastReadTime: readState?.lastReadTime || null,
+      latestSender: latest.sender?.displayName || latest.sender?.name || '',
+      latestText: (latest.text || latest.formattedText || '').slice(0, 300),
+      ts: Date.parse(latest.createTime) || now,
+      url: messagePermalink(latest) || spacePermalink(space.name),
+    };
+  });
+
+  const unread = results
+    .filter((r) => r.ok && r.value)
+    .map((r) => r.value)
+    .sort((a, b) => b.ts - a.ts);
+
+  const failed = results.filter((r) => !r.ok).length;
+  const rateLimited = results.some((r) => !r.ok && r.error instanceof ApiError && r.error.status === 429);
+
+  await chrome.storage.local.set({ [KEYS.unread]: unread });
+  await setPollState({
+    lastUnreadScanAt: now,
+    ...(rateLimited ? { backoffUntil: now + 5 * 60 * 1000 } : {}),
+  });
+
+  return { ok: true, spaces: targets.length, unread: unread.length, failed };
 }
 
 /** 設定のポーリング間隔（alarms の下限に合わせて丸める） */

@@ -1,5 +1,5 @@
 /**
- * サイドパネル: メンションフィードと保存済み一覧。
+ * サイドパネル: メンションフィード / 未読スペース / 保存済み一覧。
  * データは background 経由でのみ読み書きし、storage の変更を購読して自動更新する。
  * パネルを開いている間は少し短い間隔でポーリングを促す。
  */
@@ -9,19 +9,21 @@ const els = {
   search: document.getElementById('search'),
   tabs: document.querySelectorAll('.tab'),
   countMentions: document.getElementById('count-mentions'),
+  countUnread: document.getElementById('count-unread'),
   countSaved: document.getElementById('count-saved'),
   markAll: document.getElementById('mark-all'),
   sync: document.getElementById('sync'),
   clear: document.getElementById('clear'),
   settings: document.getElementById('settings'),
   tpl: document.getElementById('item-tpl'),
+  unreadTpl: document.getElementById('unread-tpl'),
   banner: document.getElementById('banner'),
   bannerText: document.getElementById('banner-text'),
   bannerAction: document.getElementById('banner-action'),
 };
 
 let view = 'mentions';
-let data = { mentions: [], saved: [], mutedSpaces: [] };
+let data = { mentions: [], saved: [], unread: [], mutedSpaces: [] };
 let query = '';
 
 const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
@@ -59,7 +61,7 @@ function showBanner(text, actionLabel, onClick) {
 
 async function refresh() {
   const res = await send({ type: 'LIST' });
-  if (res) data = { mutedSpaces: [], ...res };
+  if (res) data = { mutedSpaces: [], unread: [], ...res };
   render();
 }
 
@@ -110,19 +112,35 @@ function renderText(node, text, terms) {
 }
 
 function currentList() {
-  const list = view === 'saved' ? data.saved : data.mentions;
+  const list = view === 'saved' ? data.saved : view === 'unread' ? data.unread : data.mentions;
   if (!query) return list;
   const q = query.toLowerCase();
   return list.filter((i) =>
-    [i.text, i.sender, i.spaceName].some((v) => (v || '').toLowerCase().includes(q))
+    [i.text, i.latestText, i.sender, i.latestSender, i.spaceName].some((v) =>
+      (v || '').toLowerCase().includes(q)
+    )
   );
 }
 
+const EMPTY_TEXT = {
+  mentions:
+    'メンションはまだありません。\n自分宛の @メンション と、設定したキーワードがここに溜まります。',
+  unread:
+    '未読はありません。\nGoogle Chat 側の既読状態をそのまま映しています。',
+  saved:
+    'まだ保存がありません。\nGoogle Chat のメッセージにカーソルを合わせて「★ 保存」、または Alt+S。',
+};
+
 function render() {
-  const unread = data.mentions.filter((m) => !m.read).length;
-  els.countMentions.textContent = unread ? String(unread) : '';
+  const unreadMentions = data.mentions.filter((m) => !m.read).length;
+  const unreadTotal = data.unread.reduce((sum, u) => sum + (u.count || 0), 0);
+
+  els.countMentions.textContent = unreadMentions ? String(unreadMentions) : '';
+  els.countUnread.textContent = unreadTotal ? String(Math.min(unreadTotal, 999)) : '';
   els.countSaved.textContent = data.saved.length ? String(data.saved.length) : '';
+
   els.markAll.style.display = view === 'mentions' ? '' : 'none';
+  els.clear.style.display = view === 'unread' ? 'none' : '';
 
   const list = currentList();
   els.list.textContent = '';
@@ -130,15 +148,55 @@ function render() {
   if (list.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent =
-      view === 'saved'
-        ? 'まだ保存がありません。\nGoogle Chat のメッセージにカーソルを合わせて「★ 保存」、または Alt+S。'
-        : 'メンションはまだありません。\n自分宛の @メンション と、設定したキーワードがここに溜まります。';
+    empty.textContent = EMPTY_TEXT[view];
     els.list.appendChild(empty);
     return;
   }
 
-  for (const item of list) els.list.appendChild(renderItem(item));
+  const renderer = view === 'unread' ? renderUnread : renderItem;
+  for (const item of list) els.list.appendChild(renderer(item));
+}
+
+/** 未読スペース1件 */
+function renderUnread(item) {
+  const node = els.unreadTpl.content.firstElementChild.cloneNode(true);
+
+  node.querySelector('.badge-count').textContent = item.hasMore
+    ? `${item.count}+`
+    : String(item.count);
+  node.querySelector('.space').textContent = item.spaceName || item.space;
+  node.querySelector('.when').textContent = relTime(item.ts);
+  node.querySelector('.latest-sender').textContent = item.latestSender
+    ? `${item.latestSender}: `
+    : '';
+  node.querySelector('.latest-text').textContent = item.latestText || '';
+
+  const muteBtn = node.querySelector('.mute');
+  if (data.mutedSpaces.includes(item.space)) muteBtn.textContent = '🔔';
+
+  node.querySelector('.open').addEventListener('click', async () => {
+    await send({ type: 'OPEN_URL', url: item.url });
+  });
+
+  node.querySelector('.read').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '…';
+    const res = await send({ type: 'MARK_SPACE_READ', space: item.space });
+    if (!res?.ok) {
+      btn.disabled = false;
+      btn.textContent = '失敗';
+    }
+    refresh();
+  });
+
+  muteBtn.addEventListener('click', async () => {
+    const muted = !data.mutedSpaces.includes(item.space);
+    await send({ type: 'MUTE_SPACE', space: item.space, muted });
+    refresh();
+  });
+
+  return node;
 }
 
 function renderItem(item) {
@@ -217,6 +275,7 @@ els.markAll.addEventListener('click', async () => {
 els.sync.addEventListener('click', async () => {
   els.sync.textContent = '同期中…';
   await send({ type: 'POLL_NOW' });
+  await send({ type: 'SCAN_UNREAD', force: true });
   els.sync.textContent = '今すぐ同期';
   refresh();
   renderBanner();
@@ -232,14 +291,17 @@ els.clear.addEventListener('click', async () => {
 els.settings.addEventListener('click', () => chrome.runtime.openOptionsPage());
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes.mentions || changes.saved)) refresh();
+  if (area === 'local' && (changes.mentions || changes.saved || changes.unread)) refresh();
   if (area === 'sync' && changes.settings) refresh();
 });
 
-// パネルを開いている間は service worker が生きているので、少し詰めて取りに行く
+// パネルを開いている間は service worker が生きているので、少し詰めて取りに行く。
+// 未読スキャンは重いので force を付けず、poller 側の間隔判定に任せる。
 setInterval(() => send({ type: 'POLL_TICK' }), 20000);
+setInterval(() => send({ type: 'SCAN_UNREAD', force: false }), 60000);
 setInterval(renderBanner, 30000);
 
 refresh();
 renderBanner();
 send({ type: 'POLL_TICK' });
+send({ type: 'SCAN_UNREAD', force: false });
