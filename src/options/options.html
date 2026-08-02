@@ -59,10 +59,15 @@
 
           <div class="field">
             <span class="label">承認済みのリダイレクト URI</span>
-            <span class="mono block" id="redirect-uri">—</span>
+            <div class="copy-row">
+              <span class="mono block" id="redirect-uri">—</span>
+              <button id="copy-redirect" class="btn ghost small" type="button">コピー</button>
+            </div>
             <span class="hint">
-              この値を Cloud Console の OAuth クライアントの
-              「承認済みのリダイレクト URI」に<b>そのまま</b>登録してください。
+              この値を Cloud Console の OAuth クライアント（種類:
+              <b>ウェブ アプリケーション</b>）の「承認済みのリダイレクト URI」に
+              <b>末尾の <code>/</code> まで含めてそのまま</b>登録してください。
+              1文字でも違うと <code>redirect_uri_mismatch</code> になります。
             </span>
           </div>
         </div>

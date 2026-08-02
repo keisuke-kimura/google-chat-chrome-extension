@@ -158,6 +158,17 @@ async function fillCredentials() {
 }
 
 function wireConnection() {
+  $('copy-redirect').addEventListener('click', async () => {
+    const uri = $('redirect-uri').textContent.trim();
+    if (!uri || uri === '—') return;
+    try {
+      await navigator.clipboard.writeText(uri);
+      flash('リダイレクト URI をコピーしました');
+    } catch {
+      flash('コピーに失敗しました');
+    }
+  });
+
   // 認証情報を変えると今のトークンは無効になるので、background 側で接続解除される
   for (const key of ['clientId', 'clientSecret']) {
     $(key).addEventListener('change', async () => {

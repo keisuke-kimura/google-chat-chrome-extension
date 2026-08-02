@@ -291,6 +291,25 @@ input[type='password']:focus {
   word-break: break-all;
 }
 
+.copy-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.copy-row .mono.block {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn.small {
+  flex: none;
+  align-self: stretch;
+  padding: 0 14px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
 .setup a {
   color: var(--accent);
 }
