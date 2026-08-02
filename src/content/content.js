@@ -20,70 +20,85 @@
   let settings = { ...DEFAULTS };
 
   /* ---------------------------------------------------------------- *
-   * 拡張コンテキストの生存確認
+   * 孤児化への対処
    *
    * 拡張をリロード／更新すると、既に開いているページに残った content script は
-   * 孤児になり chrome.runtime が undefined になる（extension context invalidated）。
-   * Chat は DOM が絶えず動くので、素で呼ぶと例外が出続ける。
-   * .catch() では防げない（同期的な TypeError なので）。呼ぶ前に生存を確認する。
+   * 孤児になり "Extension context invalidated" を投げるようになる。
+   * ウェブストア配布後は自動更新のたびに全利用者で起きるので、静かに死ぬことが重要。
+   *
+   * 注意: chrome.runtime.id の有無は当てにならない。id が残ったまま
+   * sendMessage だけが投げるケースがあるため、事前チェックに頼らず
+   * 「すべての chrome API 呼び出しを包む」方針にしている。
    * ---------------------------------------------------------------- */
 
   let dead = false;
 
-  function alive() {
-    if (dead) return false;
-    try {
-      if (chrome?.runtime?.id) return true;
-    } catch {
-      /* アクセス自体が投げることもある */
-    }
-    teardown();
-    return false;
-  }
+  const isInvalidated = (err) =>
+    /context invalidated|Extension context|receiving end does not exist/i.test(
+      String(err?.message || err || '')
+    );
 
   /** 孤児になったら後片付けして黙る。ページをリロードすれば新しい script が入る。 */
   function teardown() {
     if (dead) return;
     dead = true;
+    // observer は下方で const 宣言しているので、初期化前の呼び出しに備えて包む
     try {
       observer.disconnect();
     } catch {
-      /* まだ observe していない */
+      /* まだ生成前 */
     }
-    toolbar?.remove();
-    flashEl?.remove();
-    toolbar = null;
-    flashEl = null;
-  }
-
-  /** 生きているときだけ background に送る */
-  function sendToBackground(message) {
-    if (!alive()) return Promise.reject(new Error('extension context invalidated'));
     try {
-      return chrome.runtime.sendMessage(message).catch((err) => {
-        // 送信中に拡張が落ちた場合もここに来る
-        if (String(err?.message || '').includes('context invalidated')) teardown();
-        throw err;
-      });
-    } catch (err) {
-      teardown();
-      return Promise.reject(err);
+      toolbar?.remove();
+      flashEl?.remove();
+      toolbar = null;
+      flashEl = null;
+    } catch {
+      /* 既に外れている */
     }
   }
 
-  try {
-    chrome.storage.sync.get('settings').then((stored) => {
-      settings = { ...DEFAULTS, ...(stored.settings || {}) };
-    });
+  /** chrome API 呼び出しを包む。孤児化なら teardown して静かに諦める。 */
+  function guard(fn, fallback = undefined) {
+    if (dead) return fallback;
+    try {
+      return fn();
+    } catch (err) {
+      if (isInvalidated(err)) teardown();
+      else console.warn('[chat-booster]', err);
+      return fallback;
+    }
+  }
+
+  /** background へ送る。失敗しても呼び出し側で握り潰せるよう常に Promise を返す。 */
+  function sendToBackground(message) {
+    if (dead) return Promise.resolve(null);
+    return guard(
+      () =>
+        chrome.runtime.sendMessage(message).catch((err) => {
+          if (isInvalidated(err)) teardown();
+          return null; // 呼び出し側に reject を伝播させない
+        }),
+      Promise.resolve(null)
+    );
+  }
+
+  guard(() => {
+    chrome.storage.sync.get('settings').then(
+      (stored) => {
+        settings = { ...DEFAULTS, ...(stored.settings || {}) };
+      },
+      (err) => {
+        if (isInvalidated(err)) teardown();
+      }
+    );
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'sync' || !changes.settings) return;
       settings = { ...DEFAULTS, ...(changes.settings.newValue || {}) };
       if (!settings.hoverToolbar) toolbar?.classList.remove('cb-visible');
     });
-  } catch {
-    // 読み込み直後に孤児化しているケース。既定値のまま動かす。
-  }
+  });
 
   /* ---------------------------------------------------------------- *
    * メッセージ要素の特定（保存ボタンを出す位置を決めるためだけに使う）
@@ -243,18 +258,24 @@
     hideTimer = setTimeout(() => toolbar?.classList.remove('cb-visible'), 250);
   }
 
+  // mouseover は Chat 上で毎秒何度も飛ぶ。ここで投げると際限なく積もるので包む。
   document.addEventListener(
     'mouseover',
     (e) => {
-      if (toolbar && toolbar.contains(e.target)) return;
-      const el = closestMessage(e.target);
-      if (!el) {
-        scheduleHide();
-        return;
+      if (dead) return;
+      try {
+        if (toolbar && toolbar.contains(e.target)) return;
+        const el = closestMessage(e.target);
+        if (!el) {
+          scheduleHide();
+          return;
+        }
+        clearTimeout(hideTimer);
+        hoveredEl = el;
+        showToolbar(el);
+      } catch (err) {
+        if (isInvalidated(err)) teardown();
       }
-      clearTimeout(hideTimer);
-      hoveredEl = el;
-      showToolbar(el);
     },
     true
   );
@@ -312,7 +333,7 @@
     flashTimer = setTimeout(() => flashEl.classList.remove('cb-visible'), 1800);
   }
 
-  try {
+  guard(() => {
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg?.type === 'SAVE_HOVERED') {
         saveCurrent();
@@ -320,9 +341,7 @@
       }
       return false;
     });
-  } catch {
-    /* 孤児化済み */
-  }
+  });
 
   /* ---------------------------------------------------------------- *
    * ポーリングの前倒し
@@ -332,18 +351,30 @@
    * ---------------------------------------------------------------- */
 
   let nudgeTimer = null;
-  const observer = new MutationObserver((records) => {
-    if (dead || !settings.domAccelerator || nudgeTimer) return;
-    if (!records.some((r) => r.addedNodes && r.addedNodes.length > 0)) return;
 
-    nudgeTimer = setTimeout(() => {
-      nudgeTimer = null;
-      // 孤児化していれば sendToBackground 側で observer ごと止まる
-      sendToBackground({ type: 'DOM_ACTIVITY' }).catch(() => {
-        /* service worker 再起動中などは黙って捨てる */
-      });
-    }, 1200);
+  /**
+   * Chat は DOM が絶えず動くので、ここで例外を投げると同じエラーが延々と積もる。
+   * 何が起きても1回で止まるよう、コールバック全体を包んで自分を切り離す。
+   */
+  const observer = new MutationObserver((records) => {
+    try {
+      if (dead || !settings.domAccelerator || nudgeTimer) return;
+      if (!records.some((r) => r && r.addedNodes && r.addedNodes.length > 0)) return;
+
+      nudgeTimer = setTimeout(() => {
+        nudgeTimer = null;
+        // 孤児化していれば sendToBackground 側で observer ごと止まる
+        sendToBackground({ type: 'DOM_ACTIVITY' }).catch(() => {
+          /* service worker 再起動中などは黙って捨てる */
+        });
+      }, 1200);
+    } catch (err) {
+      console.warn('[chat-booster] DOM 監視を停止しました:', err);
+      teardown();
+    }
   });
 
-  if (alive()) observer.observe(document.body, { childList: true, subtree: true });
+  if (!dead && document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 })();
