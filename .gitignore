@@ -1,0 +1,6 @@
+.DS_Store
+*.zip
+
+# OAuth クライアント ID を入れた manifest をうっかり公開しないための控え
+# （client_id 自体は秘密ではないが、環境ごとに差し替えるため）
+manifest.local.json

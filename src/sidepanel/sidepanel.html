@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat Booster</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="top">
+      <nav class="tabs" role="tablist">
+        <button class="tab is-active" role="tab" data-view="mentions">
+          メンション <span class="count" id="count-mentions"></span>
+        </button>
+        <button class="tab" role="tab" data-view="saved">
+          保存済み <span class="count" id="count-saved"></span>
+        </button>
+      </nav>
+      <div class="toolrow">
+        <input id="search" type="search" placeholder="絞り込み…" autocomplete="off" />
+        <button id="settings" class="icon-btn" title="設定">⚙</button>
+      </div>
+      <div class="actions">
+        <button id="mark-all" class="link-btn">すべて既読</button>
+        <button id="sync" class="link-btn">今すぐ同期</button>
+        <button id="clear" class="link-btn danger">この一覧を空に</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" hidden>
+      <span id="banner-text"></span>
+      <button id="banner-action" class="banner-btn"></button>
+    </div>
+
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <template id="item-tpl">
+      <article class="item">
+        <div class="item-head">
+          <span class="sender"></span>
+          <span class="space"></span>
+          <time class="when"></time>
+        </div>
+        <p class="text"></p>
+        <div class="chips"></div>
+        <div class="item-actions">
+          <button class="mini open">開く</button>
+          <button class="mini save">★ 保存</button>
+          <button class="mini mute" title="このスペースの通知を止める">🔕</button>
+          <button class="mini remove">削除</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="sidepanel.js" type="module"></script>
+  </body>
+</html>

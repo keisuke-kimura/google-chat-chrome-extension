@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat Booster の設定</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Chat Booster の設定</h1>
+      <p class="lead">
+        Google Chat API 経由で<strong>参加している全スペース</strong>を監視し、
+        自分宛のメンションを検知して通知します。まず下の「Google アカウントに接続」から。
+      </p>
+
+      <section class="card">
+        <h2>接続</h2>
+        <div id="conn" class="conn">
+          <div class="conn-state">
+            <span id="conn-dot" class="dot"></span>
+            <div>
+              <div id="conn-title" class="conn-title">確認中…</div>
+              <div id="conn-detail" class="conn-detail"></div>
+            </div>
+          </div>
+          <div class="conn-buttons">
+            <button id="connect" class="btn">Google アカウントに接続</button>
+            <button id="poll" class="btn ghost">今すぐ同期</button>
+            <button id="disconnect" class="btn ghost danger">接続を解除</button>
+          </div>
+        </div>
+        <p id="conn-error" class="error"></p>
+        <details class="setup">
+          <summary>接続できないときは（Cloud 側のセットアップ手順）</summary>
+          <ol>
+            <li>Google Cloud Console でプロジェクトを作成</li>
+            <li><b>Google Chat API</b> を有効化し、「設定」で<b>アプリ名・アバターURL・説明</b>を入力して保存（ユーザー認証だけでもこの設定が必須）</li>
+            <li>OAuth 同意画面を <b>内部 (Internal)</b> で作成（社内 Workspace なら Google の審査は不要）</li>
+            <li>認証情報 → OAuth クライアント ID → 種類「<b>Chrome 拡張機能</b>」→ アイテム ID にこの拡張の ID を入力
+              <br /><span class="mono" id="ext-id"></span></li>
+            <li>発行された<b>クライアント ID</b> を <code>manifest.json</code> の
+              <code>oauth2.client_id</code> に貼り付けて、拡張をリロード</li>
+          </ol>
+          <p class="hint">
+            詳細は同梱の <code>README.md</code> に。Chrome 本体に対象の Google アカウントで
+            ログインしている必要があります。
+          </p>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>何を通知するか</h2>
+
+        <p class="hint block">
+          自分宛の <code>@メンション</code> は API のアノテーションで判定するので、
+          設定なしで正確に拾えます。以下は追加で拾いたいものです。
+        </p>
+
+        <label class="field">
+          <span class="label">ハイライトキーワード</span>
+          <textarea id="keywords" rows="5" placeholder="1行に1語&#10;リリース&#10;障害&#10;至急"></textarea>
+          <span class="hint">Slack のハイライトワード相当。大文字小文字は区別しません。</span>
+        </label>
+
+        <label class="check">
+          <input id="matchAll" type="checkbox" />
+          <span><code>@all</code> / <code>@here</code> / <code>@全員</code> も通知する</span>
+        </label>
+
+        <label class="check">
+          <input id="notifyDms" type="checkbox" />
+          <span>ダイレクトメッセージは全部通知する</span>
+        </label>
+
+        <label class="check">
+          <input id="notifyAllMessages" type="checkbox" />
+          <span>
+            全スペースの全メッセージを通知する
+            <em class="warn">（かなりうるさくなります）</em>
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="label">表示名（フォールバック用・通常は空でOK）</span>
+          <input id="displayName" type="text" placeholder="例: 木村 圭祐" />
+          <span class="hint">
+            ユーザー ID の突き合わせに失敗した場合だけ、メンション相手の表示名と比較します。
+          </span>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>通知</h2>
+
+        <label class="check">
+          <input id="notify" type="checkbox" />
+          <span>デスクトップ通知を出す</span>
+        </label>
+
+        <label class="check">
+          <input id="notifyWhenFocused" type="checkbox" />
+          <span>Google Chat のタブを見ている間も通知する</span>
+        </label>
+
+        <label class="check">
+          <input id="sound" type="checkbox" />
+          <span>通知音を鳴らす</span>
+        </label>
+
+        <label class="field inline">
+          <span class="label">音量</span>
+          <input id="volume" type="range" min="0" max="1" step="0.05" />
+          <output id="volumeOut"></output>
+        </label>
+
+        <label class="check">
+          <input id="badge" type="checkbox" />
+          <span>未読メンション数をツールバーアイコンに表示する</span>
+        </label>
+
+        <button id="test" class="btn">通知をテスト</button>
+      </section>
+
+      <section class="card">
+        <h2>取得</h2>
+
+        <label class="field inline">
+          <span class="label">ポーリング間隔</span>
+          <input id="pollSeconds" type="number" min="30" max="3600" step="10" />
+          <span class="unit">秒</span>
+        </label>
+        <p class="hint block">
+          Chat API には拡張機能へ通知を push する仕組みが無いので定期取得します。
+          Chrome の制約で実効の下限は 30 秒です。短くするほど API 使用量が増えます。
+        </p>
+
+        <label class="check">
+          <input id="domAccelerator" type="checkbox" />
+          <span>
+            Chat のタブを開いている間は、画面の変化を合図に即座に取りに行く
+            <span class="hint">（間隔を待たずに数秒で気づけます）</span>
+          </span>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>操作</h2>
+
+        <label class="check">
+          <input id="hoverToolbar" type="checkbox" />
+          <span>メッセージにカーソルを合わせたら「★ 保存」ボタンを出す</span>
+        </label>
+
+        <label class="check">
+          <input id="syncReadState" type="checkbox" />
+          <span>
+            拡張で既読にしたら Google Chat 本体の未読も既読にする
+            <em class="warn">（Chat 側の状態を実際に書き換えます）</em>
+          </span>
+        </label>
+
+        <ul class="keys">
+          <li><kbd>Alt</kbd> + <kbd>S</kbd> … カーソル上／選択中のメッセージを保存</li>
+          <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> … サイドパネルを開く</li>
+        </ul>
+        <p class="hint">
+          ショートカットは <code>chrome://extensions/shortcuts</code> で変更できます。
+        </p>
+      </section>
+
+      <footer class="footer">
+        <span id="status" class="status"></span>
+        <span class="muted">変更は自動保存されます</span>
+      </footer>
+    </main>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>
