@@ -159,11 +159,22 @@
     return first ? first.slice(0, 80) : '';
   }
 
+  /**
+   * 本文を取り出す。Chat の DOM は変わるので、候補セレクタが外れても
+   * 要素全体の innerText に落として必ず何かを返す（保存できないより良い）。
+   */
   function extractText(el) {
-    const body =
-      el.querySelector('[data-message-text], [jsname][dir="auto"], [role="presentation"] > div') ||
-      el;
-    return (body.innerText || '').replace(/\s+\n/g, '\n').trim();
+    const candidates = ['[data-message-text]', '[jsname][dir="auto"]', '[role="presentation"] > div'];
+    for (const sel of candidates) {
+      try {
+        const found = el.querySelector(sel);
+        const text = (found?.innerText || '').replace(/\s+\n/g, '\n').trim();
+        if (text) return text;
+      } catch {
+        /* 無効なセレクタは無視 */
+      }
+    }
+    return (el.innerText || el.textContent || '').replace(/\s+\n/g, '\n').trim();
   }
 
   function spaceName() {
@@ -284,13 +295,26 @@
    * 保存アクション
    * ---------------------------------------------------------------- */
 
-  function saveElement(el, overrideText) {
+  async function saveElement(el, overrideText) {
     const record = toRecord(el);
-    if (!record) return;
+    if (!record) {
+      // 本文を取り出せなかった。黙って何もしないと「効かない」ように見えるので必ず伝える。
+      flash('本文を取得できませんでした（このメッセージは保存できません）');
+      console.warn('[chat-booster] toRecord に失敗:', el);
+      return;
+    }
     if (overrideText) record.text = overrideText;
-    sendToBackground({ type: 'SAVE_MESSAGE', payload: record })
-      .then(() => flash('★ 保存しました'))
-      .catch(() => flash('保存に失敗しました（拡張を再読み込みした場合はページを更新してください）'));
+
+    // sendToBackground は reject しない。成否は応答の中身で判定する。
+    const res = await sendToBackground({ type: 'SAVE_MESSAGE', payload: record });
+    if (res?.ok) {
+      flash('★ 保存しました');
+    } else if (dead) {
+      flash('拡張が更新されました。ページを再読み込みしてください');
+    } else {
+      flash('保存に失敗しました');
+      console.warn('[chat-booster] 保存の応答が不正:', res, record);
+    }
   }
 
   function copyLink(el) {
