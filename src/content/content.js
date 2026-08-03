@@ -47,6 +47,14 @@
 
   let dead = false;
 
+  /** 同種のエラーは初回だけ出す。Chat は高頻度なのでログが溢れる。 */
+  const warned = new Set();
+  function warnOnce(tag, err) {
+    if (warned.has(tag)) return;
+    warned.add(tag);
+    console.warn(`[chat-booster] ${tag}:`, err);
+  }
+
   const isInvalidated = (err) =>
     /context invalidated|Extension context|receiving end does not exist/i.test(
       String(err?.message || err || '')
@@ -254,14 +262,32 @@
   let hoveredEl = null;
   let hideTimer = null;
 
+  /**
+   * ツールバーを組み立てる。
+   *
+   * innerHTML は使えない。Google Chat / Gmail は Trusted Types
+   * (require-trusted-types-for) を強制しており、文字列の代入は
+   * "This document requires 'TrustedHTML' assignment" で弾かれる。
+   * 要素を個別に生成し、文字は textContent で入れる。
+   */
   function ensureToolbar() {
     if (toolbar) return toolbar;
     toolbar = document.createElement('div');
     toolbar.className = 'cb-toolbar';
-    toolbar.innerHTML = `
-      <button type="button" class="cb-btn" data-action="save" title="このメッセージを保存 (Alt+S)">★ 保存</button>
-      <button type="button" class="cb-btn" data-action="copy" title="リンクをコピー">🔗</button>
-    `;
+
+    for (const spec of [
+      { action: 'save', label: '★ 保存', title: 'このメッセージを保存 (Alt+S)' },
+      { action: 'copy', label: '🔗', title: 'リンクをコピー' },
+    ]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cb-btn';
+      button.dataset.action = spec.action;
+      button.title = spec.title;
+      button.textContent = spec.label;
+      toolbar.appendChild(button);
+    }
+
     toolbar.addEventListener('mouseenter', () => clearTimeout(hideTimer));
     toolbar.addEventListener('mouseleave', scheduleHide);
     toolbar.addEventListener('click', (e) => {
@@ -307,6 +333,8 @@
       showToolbar(el);
     } catch (err) {
       if (isInvalidated(err)) teardown();
+      // 握り潰しっぱなしだと原因が追えない。同じ問題で溢れないよう初回だけ出す。
+      else warnOnce('hover', err);
     }
   }
 
