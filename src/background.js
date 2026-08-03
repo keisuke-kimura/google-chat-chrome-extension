@@ -351,10 +351,37 @@ chrome.commands.onCommand.addListener(async (command) => {
  * ライフサイクル
  * ------------------------------------------------------------------ */
 
+/**
+ * 拡張を更新すると、既に開いているタブの content script は孤児になり
+ * "Extension context invalidated" を投げ続ける。Chrome は既存タブへ自動で
+ * 入れ直してくれないので、こちらから明示的に再注入する。
+ *
+ * 新しい世代は window.__chatBoosterTeardown を呼んで旧世代を止めるため、
+ * 利用者がタブを再読み込みしなくてもエラーが止まり、機能も復帰する。
+ */
+async function reinjectContentScripts() {
+  const tabs = await chrome.tabs
+    .query({ url: ['https://chat.google.com/*', 'https://mail.google.com/*'] })
+    .catch(() => []);
+
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    const target = { tabId: tab.id, allFrames: true };
+    try {
+      await chrome.scripting.insertCSS({ target, files: ['src/content/content.css'] });
+      await chrome.scripting.executeScript({ target, files: ['src/content/content.js'] });
+    } catch (err) {
+      // 権限の無いフレームや、閉じかけのタブ。動いているタブに影響はない。
+      console.debug('[chat-booster] 再注入をスキップ:', tab.url, err?.message);
+    }
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
   await refreshBadge();
   await scheduleAlarm();
+  await reinjectContentScripts();
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
 

@@ -185,6 +185,14 @@ Web Audio を実行する offscreen document が必要です。
 探して再利用し、該当メッセージへ移動するために使用します。
 ```
 
+**`scripting`**
+```
+拡張機能の更新後、すでに開いている Google Chat のタブへコンテンツ スクリプトを
+入れ直すために使用します。これを行わないと、更新前のスクリプトがタブに残って
+機能しなくなり、利用者がページを手動で再読み込みする必要が生じます。
+注入先は content_scripts と同一のページに限定しています。
+```
+
 **ホスト権限 `https://chat.googleapis.com/*`, `https://www.googleapis.com/*`, `https://oauth2.googleapis.com/*`**
 ```
 Google Chat API の呼び出しと OAuth 認証のために使用します。

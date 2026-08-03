@@ -13,8 +13,22 @@
 (() => {
   'use strict';
 
-  if (window.__chatBoosterLoaded) return;
-  window.__chatBoosterLoaded = true;
+  /*
+   * 同じフレームに既に前世代のスクリプトが居たら、先にそれを止める。
+   *
+   * 拡張が更新されると、既存タブで動いている旧スクリプトは孤児になり
+   * "Extension context invalidated" を投げ続ける。従来は多重注入を防ぐ
+   * フラグだけを見ていたため、background から再注入しても新しい方が
+   * 弾かれ、古い方が生き残ってしまっていた。
+   * teardown を window に公開し、新しい世代が明示的に引き継ぐ。
+   */
+  if (typeof window.__chatBoosterTeardown === 'function') {
+    try {
+      window.__chatBoosterTeardown();
+    } catch {
+      /* 旧世代の後片付けに失敗しても新世代は続行する */
+    }
+  }
 
   const DEFAULTS = { hoverToolbar: true, domAccelerator: true };
   let settings = { ...DEFAULTS };
@@ -38,10 +52,18 @@
       String(err?.message || err || '')
     );
 
-  /** 孤児になったら後片付けして黙る。ページをリロードすれば新しい script が入る。 */
+  /**
+   * 動作を完全に止めて後片付けする。
+   * 孤児化を検出したときのほか、次世代のスクリプトからも呼ばれる。
+   */
   function teardown() {
     if (dead) return;
     dead = true;
+    try {
+      document.removeEventListener('mouseover', onMouseOver, true);
+    } catch {
+      /* 未登録 */
+    }
     // observer は下方で const 宣言しているので、初期化前の呼び出しに備えて包む
     try {
       observer.disconnect();
@@ -270,26 +292,25 @@
   }
 
   // mouseover は Chat 上で毎秒何度も飛ぶ。ここで投げると際限なく積もるので包む。
-  document.addEventListener(
-    'mouseover',
-    (e) => {
-      if (dead) return;
-      try {
-        if (toolbar && toolbar.contains(e.target)) return;
-        const el = closestMessage(e.target);
-        if (!el) {
-          scheduleHide();
-          return;
-        }
-        clearTimeout(hideTimer);
-        hoveredEl = el;
-        showToolbar(el);
-      } catch (err) {
-        if (isInvalidated(err)) teardown();
+  // teardown から外せるよう名前付きにしている。
+  function onMouseOver(e) {
+    if (dead) return;
+    try {
+      if (toolbar && toolbar.contains(e.target)) return;
+      const el = closestMessage(e.target);
+      if (!el) {
+        scheduleHide();
+        return;
       }
-    },
-    true
-  );
+      clearTimeout(hideTimer);
+      hoveredEl = el;
+      showToolbar(el);
+    } catch (err) {
+      if (isInvalidated(err)) teardown();
+    }
+  }
+
+  document.addEventListener('mouseover', onMouseOver, true);
 
   /* ---------------------------------------------------------------- *
    * 保存アクション
@@ -401,4 +422,7 @@
   if (!dead && document.body) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
+  // 次世代のスクリプトがこのインスタンスを止められるようにする
+  window.__chatBoosterTeardown = teardown;
 })();

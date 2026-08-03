@@ -12,7 +12,8 @@
     "notifications",
     "offscreen",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://chat.googleapis.com/*",
